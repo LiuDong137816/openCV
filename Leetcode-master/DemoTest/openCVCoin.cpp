@@ -1,8 +1,5 @@
-<<<<<<< HEAD
 //LiuDong bug2
-=======
 //LiuDong 2019.3.28
->>>>>>> dev
 #include "./opencv2/highgui/highgui.hpp"
 // highgui - an interface to video and image capturing.
 
