@@ -1,3 +1,4 @@
+//LiuDong bug2
 #include "./opencv2/highgui/highgui.hpp"
 // highgui - an interface to video and image capturing.
 
