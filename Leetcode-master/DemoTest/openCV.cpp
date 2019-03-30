@@ -16,7 +16,7 @@ void detectAndDraw(Mat& img, CascadeClassifier& cascade,
 	CascadeClassifier& nestedCascade, double scale);
 string cascadeName, nestedCascadeName;
 
-int main()
+int main_fece()
 {
 	// VideoCapture class for playing video for which faces to be detected 
 	VideoCapture capture;
