@@ -354,7 +354,6 @@ Mat g_srcImage, g_dstImage;
 
 static void ContrastAndBright(int, void *)
 {
-
 	//创建窗口
 	namedWindow("【原始图窗口】", 1);
 
@@ -375,41 +374,145 @@ static void ContrastAndBright(int, void *)
 	imshow("【效果图窗口】", g_dstImage);
 }
 
+Mat g_dstImage1, g_dstImage2, g_dstImage3, g_dstImage4, g_dstImage5;//存储图片的Mat类型
+int g_nBoxFilterValue = 3;  //方框滤波参数值
+int g_nMeanBlurValue = 3;  //均值滤波参数值
+int g_nGaussianBlurValue = 3;  //高斯滤波参数值
+int g_nMedianBlurValue = 10;  //中值滤波参数值
+int g_nBilateralFilterValue = 10;  //双边滤波参数值
+
+//-----------------------------【on_BoxFilter( )函数】------------------------------------
+//     描述：方框滤波操作的回调函数
+//-----------------------------------------------------------------------------------------------
+static void on_BoxFilter(int, void *)
+{
+	//方框滤波操作
+	boxFilter(g_srcImage, g_dstImage1, -1, Size(g_nBoxFilterValue + 1, g_nBoxFilterValue + 1));
+	//显示窗口
+	imshow("【<1>方框滤波】", g_dstImage1);
+}
+
+
+//-----------------------------【on_MeanBlur( )函数】------------------------------------
+//     描述：均值滤波操作的回调函数
+//-----------------------------------------------------------------------------------------------
+static void on_MeanBlur(int, void *)
+{
+	//均值滤波操作
+	blur(g_srcImage, g_dstImage2, Size(g_nMeanBlurValue + 1, g_nMeanBlurValue + 1), Point(-1, -1));
+	//显示窗口
+	imshow("【<2>均值滤波】", g_dstImage2);
+}
+
+
+//-----------------------------【on_GaussianBlur( )函数】------------------------------------
+//     描述：高斯滤波操作的回调函数
+//-----------------------------------------------------------------------------------------------
+static void on_GaussianBlur(int, void *)
+{
+	//高斯滤波操作
+	GaussianBlur(g_srcImage, g_dstImage3, Size(g_nGaussianBlurValue * 2 + 1, g_nGaussianBlurValue * 2 + 1), 0, 0);
+	//显示窗口
+	imshow("【<3>高斯滤波】", g_dstImage3);
+}
+
+//-----------------------------【on_MedianBlur( )函数】------------------------------------
+//            描述：中值滤波操作的回调函数
+//-----------------------------------------------------------------------------------------------
+static void on_MedianBlur(int, void *)
+{
+	medianBlur(g_srcImage, g_dstImage4, g_nMedianBlurValue * 2 + 1);
+	imshow("【<4>中值滤波】", g_dstImage4);
+}
+
+
+//-----------------------------【on_BilateralFilter( )函数】------------------------------------
+//            描述：双边滤波操作的回调函数
+//-----------------------------------------------------------------------------------------------
+static void on_BilateralFilter(int, void *)
+{
+	bilateralFilter(g_srcImage, g_dstImage5, g_nBilateralFilterValue, g_nBilateralFilterValue * 2, g_nBilateralFilterValue / 2);
+	imshow("【<5>双边滤波】", g_dstImage5);
+}
+
+
+int g_nTrackbarNumer = 0;//0表示腐蚀erode, 1表示膨胀dilate
+int g_nStructElementSize = 3; //结构元素(内核矩阵)的尺寸
+
+//-----------------------------【Process( )函数】------------------------------------
+//            描述：进行自定义的腐蚀和膨胀操作
+//-----------------------------------------------------------------------------------------
+void Process()
+{
+	//获取自定义核
+	Mat element = getStructuringElement(MORPH_RECT, Size(2 * g_nStructElementSize + 1, 2 * g_nStructElementSize + 1), Point(g_nStructElementSize, g_nStructElementSize));
+
+	//进行腐蚀或膨胀操作
+	if (g_nTrackbarNumer == 0) {
+		erode(g_srcImage, g_dstImage, element);
+	}
+	else {
+		dilate(g_srcImage, g_dstImage, element);
+	}
+
+	//显示效果图
+	imshow("【效果图】", g_dstImage);
+}
+
+
+//-----------------------------【on_TrackbarNumChange( )函数】------------------------------------
+//            描述：腐蚀和膨胀之间切换开关的回调函数
+//-----------------------------------------------------------------------------------------------------
+void on_TrackbarNumChange(int, void *)
+{
+	//腐蚀和膨胀之间效果已经切换，回调函数体内需调用一次Process函数，使改变后的效果立即生效并显示出来
+	Process();
+}
+
+
+//-----------------------------【on_ElementSizeChange( )函数】-------------------------------------
+//            描述：腐蚀和膨胀操作内核改变时的回调函数
+//-----------------------------------------------------------------------------------------------------
+void on_ElementSizeChange(int, void *)
+{
+	//内核尺寸已改变，回调函数体内需调用一次Process函数，使改变后的效果立即生效并显示出来
+	Process();
+}
+
 //-----------------------------------【main( )函数】--------------------------------------------
 //	描述：控制台应用程序的入口函数，我们的程序从这里开始
 //-----------------------------------------------------------------------------------------------
 int main()
 {
-	//改变控制台前景色和背景色
-	system("color5F");
+	system("color5E");
 
-	//读入用户提供的图像
-	g_srcImage = imread("girl.png");
-	if (!g_srcImage.data) { printf("Oh，no，读取g_srcImage图片错误~！\n"); return false; }
-	g_dstImage = Mat::zeros(g_srcImage.size(), g_srcImage.type());
+	//载入原图
+	g_srcImage = imread("dota.png");
+	if (!g_srcImage.data) { printf("Oh，no，读取srcImage错误~！\n"); return false; }
 
-	//设定对比度和亮度的初值
-	g_nContrastValue = 80;
-	g_nBrightValue = 80;
+	//显示原始图
+	namedWindow("【原始图】");
+	imshow("【原始图】", g_srcImage);
 
-	//创建窗口
-	namedWindow("【效果图窗口】", 1);
+	//进行初次腐蚀操作并显示效果图
+	namedWindow("【效果图】");
+	//获取自定义核
+	Mat element = getStructuringElement(MORPH_RECT, Size(2 * g_nStructElementSize + 1, 2 * g_nStructElementSize + 1), Point(g_nStructElementSize, g_nStructElementSize));
+	erode(g_srcImage, g_dstImage, element);
+	imshow("【效果图】", g_dstImage);
 
 	//创建轨迹条
-	createTrackbar("对比度：", "【效果图窗口】", &g_nContrastValue, 300, ContrastAndBright);
-	createTrackbar("亮   度：", "【效果图窗口】", &g_nBrightValue, 200, ContrastAndBright);
-
-	//调用回调函数
-	ContrastAndBright(g_nContrastValue, 0);
-	ContrastAndBright(g_nBrightValue, 0);
+	createTrackbar("腐蚀/膨胀", "【效果图】", &g_nTrackbarNumer, 1, on_TrackbarNumChange);
+	createTrackbar("内核尺寸", "【效果图】", &g_nStructElementSize, 21, on_ElementSizeChange);
 
 	//输出一些帮助信息
-	cout << endl << "\t嗯。好了，请调整滚动条观察图像效果~\n\n"
+	cout << endl << "\t嗯。运行成功，请调整滚动条观察图像效果~\n\n"
 		<< "\t按下“q”键时，程序退出~!\n"
 		<< "\n\n\t\t\t\tby浅墨";
 
-	//按下“q”键时，程序退出
+	//轮询获取按键信息，若下q键，程序退出
 	while (char(waitKey(1)) != 'q') {}
+
 	return 0;
 }
 
