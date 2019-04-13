@@ -563,67 +563,130 @@ static void ShowHelpText()
 	);
 }
 
+Mat g_srcGrayImage;
+
+//Canny边缘检测相关变量
+Mat g_cannyDetectedEdges;
+int g_cannyLowThreshold = 1;//TrackBar位置参数  
+
+//Sobel边缘检测相关变量
+Mat g_sobelGradient_X, g_sobelGradient_Y;
+Mat g_sobelAbsGradient_X, g_sobelAbsGradient_Y;
+int g_sobelKernelSize = 1;//TrackBar位置参数  
+
+//Scharr滤波器相关变量
+Mat g_scharrGradient_X, g_scharrGradient_Y;
+Mat g_scharrAbsGradient_X, g_scharrAbsGradient_Y;
+
+
+//-----------------------------------【on_Canny( )函数】----------------------------------
+//		描述：Canny边缘检测窗口滚动条的回调函数
+//-----------------------------------------------------------------------------------------------
+void on_Canny(int, void*)
+{
+	// 先使用 3x3内核来降噪
+	blur(g_srcGrayImage, g_cannyDetectedEdges, Size(3, 3));
+
+	// 运行我们的Canny算子
+	Canny(g_cannyDetectedEdges, g_cannyDetectedEdges, g_cannyLowThreshold, g_cannyLowThreshold * 3, 3);
+
+	//先将g_dstImage内的所有元素设置为0 
+	g_dstImage = Scalar::all(0);
+
+	//使用Canny算子输出的边缘图g_cannyDetectedEdges作为掩码，来将原图g_srcImage拷到目标图g_dstImage中
+	g_srcImage.copyTo(g_dstImage, g_cannyDetectedEdges);
+
+	//显示效果图
+	imshow("【效果图】Canny边缘检测", g_dstImage);
+}
+
+
+
+//-----------------------------------【on_Sobel( )函数】----------------------------------
+//		描述：Sobel边缘检测窗口滚动条的回调函数
+//-----------------------------------------------------------------------------------------
+void on_Sobel(int, void*)
+{
+	// 求 X方向梯度
+	Sobel(g_srcImage, g_sobelGradient_X, CV_16S, 1, 0, (2 * g_sobelKernelSize + 1), 1, 1, BORDER_DEFAULT);
+	convertScaleAbs(g_sobelGradient_X, g_sobelAbsGradient_X);//计算绝对值，并将结果转换成8位
+
+	// 求Y方向梯度
+	Sobel(g_srcImage, g_sobelGradient_Y, CV_16S, 0, 1, (2 * g_sobelKernelSize + 1), 1, 1, BORDER_DEFAULT);
+	convertScaleAbs(g_sobelGradient_Y, g_sobelAbsGradient_Y);//计算绝对值，并将结果转换成8位
+
+	// 合并梯度
+	addWeighted(g_sobelAbsGradient_X, 0.5, g_sobelAbsGradient_Y, 0.5, 0, g_dstImage);
+
+	//显示效果图
+	imshow("【效果图】Sobel边缘检测", g_dstImage);
+
+}
+
+
+//-----------------------------------【Scharr( )函数】----------------------------------
+//		描述：封装了Scharr边缘检测相关代码的函数
+//-----------------------------------------------------------------------------------------
+void Scharr()
+{
+	// 求 X方向梯度
+	Scharr(g_srcImage, g_scharrGradient_X, CV_16S, 1, 0, 1, 0, BORDER_DEFAULT);
+	convertScaleAbs(g_scharrGradient_X, g_scharrAbsGradient_X);//计算绝对值，并将结果转换成8位
+
+	// 求Y方向梯度
+	Scharr(g_srcImage, g_scharrGradient_Y, CV_16S, 0, 1, 1, 0, BORDER_DEFAULT);
+	convertScaleAbs(g_scharrGradient_Y, g_scharrAbsGradient_Y);//计算绝对值，并将结果转换成8位
+
+	// 合并梯度
+	addWeighted(g_scharrAbsGradient_X, 0.5, g_scharrAbsGradient_Y, 0.5, 0, g_dstImage);
+
+	//显示效果图
+	imshow("【效果图】Scharr滤波器", g_dstImage);
+}
+
 //-----------------------------------【main( )函数】--------------------------------------------
 //	描述：控制台应用程序的入口函数，我们的程序从这里开始
 //-----------------------------------------------------------------------------------------------
 int main()
 {
+	//改变console字体颜色
 	system("color 2F");
 
+	//显示欢迎语
 	ShowHelpText();
 
 	//载入原图
-	g_srcImage = imread("girl.png");//工程目录下需要有一张名为1.jpg的素材图
+	g_srcImage = imread("girl.png");
 	if (!g_srcImage.data) { printf("Oh，no，读取srcImage错误~！ \n"); return false; }
 
 	//显示原始图
 	namedWindow("【原始图】");
 	imshow("【原始图】", g_srcImage);
 
-	//创建三个窗口
-	namedWindow("【开运算/闭运算】", 1);
-	namedWindow("【腐蚀/膨胀】", 1);
-	namedWindow("【顶帽/黑帽】", 1);
+	// 创建与src同类型和大小的矩阵(dst)
+	g_dstImage.create(g_srcImage.size(), g_srcImage.type());
 
-	//参数赋值
-	g_nOpenCloseNum = 9;
-	g_nErodeDilateNum = 9;
-	g_nTopBlackHatNum = 2;
+	// 将原图像转换为灰度图像
+	cvtColor(g_srcImage, g_srcGrayImage, CV_BGR2GRAY);
 
-	//分别为三个窗口创建滚动条
-	createTrackbar("迭代值", "【开运算/闭运算】", &g_nOpenCloseNum, g_nMaxIterationNum * 2 + 1, on_OpenClose);
-	createTrackbar("迭代值", "【腐蚀/膨胀】", &g_nErodeDilateNum, g_nMaxIterationNum * 2 + 1, on_ErodeDilate);
-	createTrackbar("迭代值", "【顶帽/黑帽】", &g_nTopBlackHatNum, g_nMaxIterationNum * 2 + 1, on_TopBlackHat);
+	// 创建显示窗口
+	namedWindow("【效果图】Canny边缘检测", CV_WINDOW_AUTOSIZE);
+	namedWindow("【效果图】Sobel边缘检测", CV_WINDOW_AUTOSIZE);
 
-	//轮询获取按键信息
-	while (1)
-	{
-		int c;
+	// 创建trackbar
+	createTrackbar("参数值：", "【效果图】Canny边缘检测", &g_cannyLowThreshold, 120, on_Canny);
+	createTrackbar("参数值：", "【效果图】Sobel边缘检测", &g_sobelKernelSize, 3, on_Sobel);
 
-		//执行回调函数
-		on_OpenClose(g_nOpenCloseNum, 0);
-		on_ErodeDilate(g_nErodeDilateNum, 0);
-		on_TopBlackHat(g_nTopBlackHatNum, 0);
+	// 调用回调函数
+	on_Canny(0, 0);
+	on_Sobel(0, 0);
 
-		//获取按键
-		c = waitKey(0);
+	//调用封装了Scharr边缘检测代码的函数
+	Scharr();
 
-		//按下键盘按键Q或者ESC，程序退出
-		if ((char)c == 'q' || (char)c == 27)
-			break;
-		//按下键盘按键1，使用椭圆(Elliptic)结构元素结构元素MORPH_ELLIPSE
-		if ((char)c == 49)//键盘按键1的ASII码为49
-			g_nElementShape = MORPH_ELLIPSE;
-		//按下键盘按键2，使用矩形(Rectangle)结构元素MORPH_RECT
-		else if ((char)c == 50)//键盘按键2的ASII码为50
-			g_nElementShape = MORPH_RECT;
-		//按下键盘按键3，使用十字形(Cross-shaped)结构元素MORPH_CROSS
-		else if ((char)c == 51)//键盘按键3的ASII码为51
-			g_nElementShape = MORPH_CROSS;
-		//按下键盘按键space，在矩形、椭圆、十字形结构元素中循环
-		else if ((char)c == ' ')
-			g_nElementShape = (g_nElementShape + 1) % 3;
-	}
+	//轮询获取按键信息，若按下Q，程序退出
+	while ((char(waitKey(1)) != 'q')) {}
+
 	return 0;
 }
 
