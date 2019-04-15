@@ -644,6 +644,33 @@ void Scharr()
 	imshow("【效果图】Scharr滤波器", g_dstImage);
 }
 
+void resize_pyr() {
+	char ch;
+	Mat g_tmpImage;
+	g_srcImage = imread("girl.png");//工程目录下需要有一张名为1.jpg的测试图像，且其尺寸需被2的N次方整除，N为可以缩放的次数
+	if (!g_srcImage.data) { printf("Oh，no，读取srcImage错误~！ \n"); return; }
+
+	// 创建显示窗口
+	g_tmpImage = g_srcImage;
+	namedWindow("图片", CV_WINDOW_AUTOSIZE);
+	imshow("图片", g_srcImage);
+	while (cin >> ch)
+	{
+		switch (ch)
+		{
+		case '1':
+			pyrUp(g_tmpImage, g_dstImage, Size(g_tmpImage.cols * 2, g_tmpImage.rows * 2));
+			printf(">检测到按键【A】被按下，开始进行基于【pyrUp】函数的图片放大：图片尺寸×2 \n");
+			break;
+		case '2':
+			resize(g_tmpImage, g_dstImage, Size(g_tmpImage.cols * 2, g_tmpImage.rows * 2));
+			printf(">检测到按键【W】被按下，开始进行基于【resize】函数的图片放大：图片尺寸×2 \n");
+			break;
+			
+		}
+	}
+}
+
 //-----------------------------------【main( )函数】--------------------------------------------
 //	描述：控制台应用程序的入口函数，我们的程序从这里开始
 //-----------------------------------------------------------------------------------------------
