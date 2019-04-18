@@ -553,15 +553,19 @@ static void ShowHelpText()
 {
 	//输出一些帮助信息
 	printf("\n\n\n\t请调整滚动条观察图像效果~\n\n");
-	printf("\n\n\t按键操作说明: \n\n"
-		"\t\t键盘按键【ESC】或者【Q】- 退出程序\n"
-		"\t\t键盘按键【1】- 使用椭圆(Elliptic)结构元素\n"
-		"\t\t键盘按键【2】- 使用矩形(Rectangle )结构元素\n"
-		"\t\t键盘按键【3】- 使用十字型(Cross-shaped)结构元素\n"
-		"\t\t键盘按键【空格SPACE】- 在矩形、椭圆、十字形结构元素中循环\n"
-		"\n\n\t\t\t\t\t\t\t\t by浅墨"
+	printf("\n\n\t\t\t\t\t\t\t\t by浅墨"
 	);
 }
+
+vector<Vec4i> g_lines;//定义一个矢量结构g_lines用于存放得到的线段矢量集合
+//变量接收的TrackBar位置参数
+int g_nthreshold = 100;
+Mat g_midImage;
+//-----------------------------------【全局函数声明部分】--------------------------------------
+//		描述：全局函数声明
+//-----------------------------------------------------------------------------------------------
+
+static void on_HoughLines(int, void*);//回调函数
 
 Mat g_srcGrayImage;
 
@@ -599,8 +603,6 @@ void on_Canny(int, void*)
 	//显示效果图
 	imshow("【效果图】Canny边缘检测", g_dstImage);
 }
-
-
 
 //-----------------------------------【on_Sobel( )函数】----------------------------------
 //		描述：Sobel边缘检测窗口滚动条的回调函数
@@ -644,7 +646,7 @@ void Scharr()
 	imshow("【效果图】Scharr滤波器", g_dstImage);
 }
 
-void resize_pyr() {
+void resize_py() {
 	char ch;
 	Mat g_tmpImage;
 	g_srcImage = imread("girl.png");//工程目录下需要有一张名为1.jpg的测试图像，且其尺寸需被2的N次方整除，N为可以缩放的次数
@@ -652,11 +654,13 @@ void resize_pyr() {
 
 	// 创建显示窗口
 	g_tmpImage = g_srcImage;
+	g_dstImage = g_tmpImage;
 	namedWindow("图片", CV_WINDOW_AUTOSIZE);
 	imshow("图片", g_srcImage);
-	while (cin >> ch)
+	int key = 0;
+	while (key = waitKey(9))
 	{
-		switch (ch)
+		switch (key)
 		{
 		case '1':
 			pyrUp(g_tmpImage, g_dstImage, Size(g_tmpImage.cols * 2, g_tmpImage.rows * 2));
@@ -666,53 +670,86 @@ void resize_pyr() {
 			resize(g_tmpImage, g_dstImage, Size(g_tmpImage.cols * 2, g_tmpImage.rows * 2));
 			printf(">检测到按键【W】被按下，开始进行基于【resize】函数的图片放大：图片尺寸×2 \n");
 			break;
-			
+		case '3': //按键D按下，调用pyrDown函数
+			pyrDown(g_tmpImage, g_dstImage, Size(g_tmpImage.cols / 2, g_tmpImage.rows / 2));
+			printf(">检测到按键【D】被按下，开始进行基于【pyrDown】函数的图片缩小：图片尺寸/2\n");
+			break;
+					
+		case  '4': //按键S按下，调用resize函数
+			resize(g_tmpImage, g_dstImage, Size(g_tmpImage.cols / 2, g_tmpImage.rows / 2));
+			printf(">检测到按键【S】被按下，开始进行基于【resize】函数的图片缩小：图片尺寸/2\n");
+			break;
+
+		case '5'://按键2按下，调用resize函数
+			resize(g_tmpImage, g_dstImage, Size(g_tmpImage.cols / 2, g_tmpImage.rows / 2), (0, 0), (0, 0), 2);
+			printf(">检测到按键【2】被按下，开始进行基于【resize】函数的图片缩小：图片尺寸/2\n");
+			break;
+		case 'q':
+			return;
+			break;
 		}
+		//经过操作后，显示变化后的图
+		imshow("图片", g_dstImage);
+
+		//将g_dstImage赋给g_tmpImage，方便下一次循环
+		g_tmpImage = g_dstImage;
 	}
+	return;
 }
 
+
+static void on_HoughLines(int, void*)
+{
+	//定义局部变量储存全局变量
+	Mat dstImage = g_dstImage.clone();
+	Mat midImage = g_midImage.clone();
+
+	//调用HoughLinesP函数
+	vector<Vec4i> mylines;
+	HoughLinesP(midImage, mylines, 1, CV_PI / 180, g_nthreshold + 1, 50, 10);
+
+	//循环遍历绘制每一条线段
+	for (size_t i = 0; i < mylines.size(); i++)
+	{
+		Vec4i l = mylines[i];
+		line(dstImage, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(23, 180, 55), 1, CV_AA);
+	}
+	//显示图像
+	imshow("【效果图】", dstImage);
+}
 //-----------------------------------【main( )函数】--------------------------------------------
 //	描述：控制台应用程序的入口函数，我们的程序从这里开始
 //-----------------------------------------------------------------------------------------------
 int main()
 {
 	//改变console字体颜色
-	system("color 2F");
+	system("color 3F");
 
-	//显示欢迎语
 	ShowHelpText();
 
-	//载入原图
-	g_srcImage = imread("girl.png");
-	if (!g_srcImage.data) { printf("Oh，no，读取srcImage错误~！ \n"); return false; }
+	//载入原始图和Mat变量定义   
+	Mat g_srcImage = imread("girl.png");  //工程目录下应该有一张名为1.jpg的素材图
 
-	//显示原始图
-	namedWindow("【原始图】");
+	//显示原始图  
 	imshow("【原始图】", g_srcImage);
 
-	// 创建与src同类型和大小的矩阵(dst)
-	g_dstImage.create(g_srcImage.size(), g_srcImage.type());
+	//创建滚动条
+	namedWindow("【效果图】", 1);
+	createTrackbar("值", "【效果图】", &g_nthreshold, 200, on_HoughLines);
 
-	// 将原图像转换为灰度图像
-	cvtColor(g_srcImage, g_srcGrayImage, CV_BGR2GRAY);
+	//进行边缘检测和转化为灰度图
+	Canny(g_srcImage, g_midImage, 50, 200, 3);//进行一次canny边缘检测
+	cvtColor(g_midImage, g_dstImage, CV_GRAY2BGR);//转化边缘检测后的图为灰度图
 
-	// 创建显示窗口
-	namedWindow("【效果图】Canny边缘检测", CV_WINDOW_AUTOSIZE);
-	namedWindow("【效果图】Sobel边缘检测", CV_WINDOW_AUTOSIZE);
+	//调用一次回调函数，调用一次HoughLinesP函数
+	on_HoughLines(g_nthreshold, 0);
+	//HoughLinesP(g_midImage, g_lines, 1, CV_PI / 180, 80, 50, 10);
 
-	// 创建trackbar
-	createTrackbar("参数值：", "【效果图】Canny边缘检测", &g_cannyLowThreshold, 120, on_Canny);
-	createTrackbar("参数值：", "【效果图】Sobel边缘检测", &g_sobelKernelSize, 3, on_Sobel);
+	//显示效果图  
+	imshow("【效果图】", g_dstImage);
 
-	// 调用回调函数
-	on_Canny(0, 0);
-	on_Sobel(0, 0);
 
-	//调用封装了Scharr边缘检测代码的函数
-	Scharr();
-
-	//轮询获取按键信息，若按下Q，程序退出
-	while ((char(waitKey(1)) != 'q')) {}
+	waitKey(0);
 
 	return 0;
 }
