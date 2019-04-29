@@ -1,8 +1,15 @@
 #include<opencv2/opencv.hpp>
+#include<opencv2/highgui/highgui.hpp>
+#include <opencv2/features2d/features2d.hpp>
+#include<opencv2/core/core.hpp>
+#include<opencv2/xfeatures2d/nonfree.hpp>
+#include <opencv2/imgproc.hpp>
 #include<iostream>
 
 using namespace std;
 using namespace cv;
+using namespace xfeatures2d;
+
 int main_image() {
 	Mat in_image, out_image;
 	in_image = imread("1.jpg", IMREAD_UNCHANGED);
@@ -546,17 +553,6 @@ static void on_TopBlackHat(int, void*)
 	imshow("【顶帽/黑帽】", g_dstImage);
 }
 
-//-----------------------------------【ShowHelpText( )函数】----------------------------------
-//		描述：输出一些帮助信息
-//----------------------------------------------------------------------------------------------
-static void ShowHelpText()
-{
-	//输出一些帮助信息
-	printf("\n\n\n\t请调整滚动条观察图像效果~\n\n");
-	printf("\n\n\t\t\t\t\t\t\t\t by浅墨"
-	);
-}
-
 vector<Vec4i> g_lines;//定义一个矢量结构g_lines用于存放得到的线段矢量集合
 //变量接收的TrackBar位置参数
 int g_nthreshold = 100;
@@ -717,10 +713,171 @@ static void on_HoughLines(int, void*)
 	//显示图像
 	imshow("【效果图】", dstImage);
 }
-//-----------------------------------【main( )函数】--------------------------------------------
-//	描述：控制台应用程序的入口函数，我们的程序从这里开始
-//-----------------------------------------------------------------------------------------------
-int main()
+Mat g_grayImage, g_maskImage, g_srcImage1;
+int g_nFillMode = 1;//漫水填充的模式
+int g_nLowDifference = 20, g_nUpDifference = 20;//负差最大值、正差最大值
+int g_nConnectivity = 4;//表示floodFill函数标识符低八位的连通值
+int g_bIsColor = true;//是否为彩色图的标识符布尔值
+bool g_bUseMask = false;//是否显示掩膜窗口的布尔值
+int g_nNewMaskVal = 255;//新的重新绘制的像素值
+
+
+//-----------------------------------【onMouse( )函数】--------------------------------------  
+//      描述：鼠标消息onMouse回调函数
+//---------------------------------------------------------------------------------------------
+static void onMouse(int event, int x, int y, int, void*)
+{
+	// 若鼠标左键没有按下，便返回
+	if (event != CV_EVENT_LBUTTONDOWN)
+		return;
+
+	//-------------------【<1>调用floodFill函数之前的参数准备部分】---------------
+	Point seed = Point(x, y);
+	int LowDifference = g_nFillMode == 0 ? 0 : g_nLowDifference;//空范围的漫水填充，此值设为0，否则设为全局的g_nLowDifference
+	int UpDifference = g_nFillMode == 0 ? 0 : g_nUpDifference;//空范围的漫水填充，此值设为0，否则设为全局的g_nUpDifference
+	int flags = g_nConnectivity + (g_nNewMaskVal << 8) +
+		(g_nFillMode == 1 ? CV_FLOODFILL_FIXED_RANGE : 0);//标识符的0~7位为g_nConnectivity，8~15位为g_nNewMaskVal左移8位的值，16~23位为CV_FLOODFILL_FIXED_RANGE或者0。
+
+	//随机生成bgr值
+	int b = (unsigned)theRNG() & 255;//随机返回一个0~255之间的值
+	int g = (unsigned)theRNG() & 255;//随机返回一个0~255之间的值
+	int r = (unsigned)theRNG() & 255;//随机返回一个0~255之间的值
+	Rect ccomp;//定义重绘区域的最小边界矩形区域
+
+	Scalar newVal = g_bIsColor ? Scalar(b, g, r) : Scalar(r*0.299 + g * 0.587 + b * 0.114);//在重绘区域像素的新值，若是彩色图模式，取Scalar(b, g, r)；若是灰度图模式，取Scalar(r*0.299 + g*0.587 + b*0.114)
+
+	Mat dst = g_bIsColor ? g_dstImage : g_grayImage;//目标图的赋值
+	int area;
+
+	//--------------------【<2>正式调用floodFill函数】-----------------------------
+	if (g_bUseMask)
+	{
+		threshold(g_maskImage, g_maskImage, 1, 128, CV_THRESH_BINARY);
+		area = floodFill(dst, g_maskImage, seed, newVal, &ccomp, Scalar(LowDifference, LowDifference, LowDifference),
+			Scalar(UpDifference, UpDifference, UpDifference), flags);
+		imshow("mask", g_maskImage);
+	}
+	else
+	{
+		area = floodFill(dst, seed, newVal, &ccomp, Scalar(LowDifference, LowDifference, LowDifference),
+			Scalar(UpDifference, UpDifference, UpDifference), flags);
+	}
+
+	imshow("效果图", dst);
+	cout << area << " 个像素被重绘\n";
+}
+
+int thresh = 30; //当前阈值
+int max_thresh = 175; //最大阈值
+#define WINDOW_NAME1 "【程序窗口1】"        //为窗口标题定义的宏  
+#define WINDOW_NAME2 "【程序窗口2】"        //为窗口标题定义的宏  
+
+
+//-----------------------------------【on_HoughLines( )函数】--------------------------------
+//		描述：回调函数
+//----------------------------------------------------------------------------------------------
+
+void on_CornerHarris(int, void*)
+{
+	//---------------------------【1】定义一些局部变量-----------------------------
+	Mat dstImage;//目标图
+	Mat normImage;//归一化后的图
+	Mat scaledImage;//线性变换后的八位无符号整型的图
+
+	//---------------------------【2】初始化---------------------------------------
+	//置零当前需要显示的两幅图，即清除上一次调用此函数时他们的值
+	dstImage = Mat::zeros(g_srcImage.size(), CV_32FC1);
+	g_srcImage1 = g_srcImage.clone();
+
+	//---------------------------【3】正式检测-------------------------------------
+	//进行角点检测
+	cornerHarris(g_grayImage, dstImage, 2, 3, 0.04, BORDER_DEFAULT);
+
+	// 归一化与转换
+	normalize(dstImage, normImage, 0, 255, NORM_MINMAX, CV_32FC1, Mat());
+	convertScaleAbs(normImage, scaledImage);//将归一化后的图线性变换成8位无符号整型 
+
+	//---------------------------【4】进行绘制-------------------------------------
+	// 将检测到的，且符合阈值条件的角点绘制出来
+	for (int j = 0; j < normImage.rows; j++)
+	{
+		for (int i = 0; i < normImage.cols; i++)
+		{
+			if ((int)normImage.at<float>(j, i) > thresh + 80)
+			{
+				circle(g_srcImage1, Point(i, j), 5, Scalar(10, 10, 255), 2, 8, 0);
+				circle(scaledImage, Point(i, j), 5, Scalar(0, 10, 255), 2, 8, 0);
+			}
+		}
+	}
+	//---------------------------【4】显示最终效果---------------------------------
+	imshow(WINDOW_NAME1, g_srcImage1);
+	imshow(WINDOW_NAME2, scaledImage);
+
+}
+#define WINDOW_NAME "【程序窗口】" 
+Mat g_map_x, g_map_y;
+//-----------------------------------【update_map( )函数】--------------------------------
+//          描述：根据按键来更新map_x与map_x的值
+//----------------------------------------------------------------------------------------------
+int update_map(int key)
+{
+	//双层循环，遍历每一个像素点
+	for (int j = 0; j < g_srcImage.rows; j++)
+	{
+		for (int i = 0; i < g_srcImage.cols; i++)
+		{
+			switch (key)
+			{
+			case '1': // 键盘【1】键按下，进行第一种重映射操作
+				if (i > g_srcImage.cols*0.25 && i < g_srcImage.cols*0.75 && j > g_srcImage.rows*0.25 && j < g_srcImage.rows*0.75)
+				{
+					g_map_x.at<float>(j, i) = static_cast<float>(2 * (i - g_srcImage.cols*0.25) + 0.5);
+					g_map_y.at<float>(j, i) = static_cast<float>(2 * (j - g_srcImage.rows*0.25) + 0.5);
+				}
+				else
+				{
+					g_map_x.at<float>(j, i) = 0;
+					g_map_y.at<float>(j, i) = 0;
+				}
+				break;
+			case '2':// 键盘【2】键按下，进行第二种重映射操作
+				g_map_x.at<float>(j, i) = static_cast<float>(i);
+				g_map_y.at<float>(j, i) = static_cast<float>(g_srcImage.rows - j);
+				break;
+			case '3':// 键盘【3】键按下，进行第三种重映射操作
+				g_map_x.at<float>(j, i) = static_cast<float>(g_srcImage.cols - i);
+				g_map_y.at<float>(j, i) = static_cast<float>(j);
+				break;
+			case '4':// 键盘【4】键按下，进行第四种重映射操作
+				g_map_x.at<float>(j, i) = static_cast<float>(g_srcImage.cols - i);
+				g_map_y.at<float>(j, i) = static_cast<float>(g_srcImage.rows - j);
+				break;
+			}
+		}
+	}
+	return 1;
+}
+
+//-----------------------------------【ShowHelpText( )函数】----------------------------------  
+//      描述：输出一些帮助信息  
+//----------------------------------------------------------------------------------------------  
+static void ShowHelpText()
+{
+	//输出一些帮助信息  
+	printf("\n\n\n\t欢迎来到重映射示例程序~\n\n");
+	printf("\t当前使用的OpenCV版本为 OpenCV ");
+	printf("\n\n\t按键操作说明: \n\n"
+		"\t\t键盘按键【ESC】- 退出程序\n"
+		"\t\t键盘按键【1】-  第一种映射方式\n"
+		"\t\t键盘按键【2】- 第二种映射方式\n"
+		"\t\t键盘按键【3】- 第三种映射方式\n"
+		"\t\t键盘按键【4】- 第四种映射方式\n"
+		"\n\n\t\t\t\t\t\t\t\t by浅墨\n\n\n"
+	);
+}
+
+int main_10()
 {
 	//改变console字体颜色
 	system("color 3F");
@@ -743,7 +900,7 @@ int main()
 
 	//调用一次回调函数，调用一次HoughLinesP函数
 	on_HoughLines(g_nthreshold, 0);
-	//HoughLinesP(g_midImage, g_lines, 1, CV_PI / 180, 80, 50, 10);
+	HoughLinesP(g_midImage, g_lines, 1, CV_PI / 180, 80, 50, 10);
 
 	//显示效果图  
 	imshow("【效果图】", g_dstImage);
@@ -751,6 +908,63 @@ int main()
 
 	waitKey(0);
 
+	return 0;
+}
+#define WINDOW_NAME3 "【经过Warp和Rotate后的图像】" 
+//#include<opencv2/legacy/legacy.hpp>
+//-----------------------------------【main( )函数】--------------------------------------------
+//	描述：控制台应用程序的入口函数，我们的程序从这里开始
+//-----------------------------------------------------------------------------------------------
+int main()
+{
+	//【0】改变console字体颜色
+	system("color 1A");
+
+	//【0】显示欢迎和帮助文字
+	ShowHelpText();
+
+	//【1】载入素材图
+	Mat srcImage1 = imread("girl.png", 1);
+	Mat srcImage2 = imread("book.png", 1);
+	if (!srcImage1.data || !srcImage2.data)
+	{
+		printf("读取图片错误，请确定目录下是否有imread函数指定的图片存在~！ \n"); return false;
+	}
+
+	//【2】使用SURF算子检测关键点
+	int minHessian = 700;//SURF算法中的hessian阈值
+	Ptr<SurfFeatureDetector> detector = SurfFeatureDetector::create(minHessian);//定义一个SurfFeatureDetector（SURF） 特征检测类对象  
+	std::vector<KeyPoint> keyPoint1, keyPoints2;//vector模板类，存放任意类型的动态数组
+
+	//【3】调用detect函数检测出SURF特征关键点，保存在vector容器中
+	detector->detect(srcImage1, keyPoint1);
+	detector->detect(srcImage2, keyPoints2);
+
+	//【4】计算描述符（特征向量）
+	Mat descriptors1, descriptors2;
+	cv::Ptr<SURF> extractor = SURF::create();
+
+	//SurfDescriptorExtractor extractor;
+	
+	extractor->compute(srcImage1, keyPoint1, descriptors1);
+	extractor->compute(srcImage2, keyPoints2, descriptors2);
+
+	//【5】使用BruteForce进行匹配
+	// 实例化一个匹配器
+	BFMatcher matcher(NORM_L2);
+	//BruteForceMatcher<L2<float>> matcher;
+	std::vector< DMatch > matches;
+	//匹配两幅图中的描述子（descriptors）
+	matcher.match(descriptors1, descriptors2, matches);
+
+	//【6】绘制从两个图像中匹配出的关键点
+	Mat imgMatches;
+	drawMatches(srcImage1, keyPoint1, srcImage2, keyPoints2, matches, imgMatches);//进行绘制
+
+	//【7】显示效果图
+	imshow("匹配图", imgMatches);
+
+	waitKey(0);
 	return 0;
 }
 
