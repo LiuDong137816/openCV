@@ -915,8 +915,35 @@ int main_10()
 //-----------------------------------【main( )函数】--------------------------------------------
 //	描述：控制台应用程序的入口函数，我们的程序从这里开始
 //-----------------------------------------------------------------------------------------------
-int main()
+int main_11()
 {
+	//【0】变量的定义
+	Mat src, src_gray, dst, abs_dst;
+
+	//【1】载入原始图  
+	src = imread("girl.png");  //工程目录下应该有一张名为1.jpg的素材图
+
+	//【2】显示原始图 
+	imshow("【原始图】图像Laplace变换", src);
+
+	//【3】使用高斯滤波消除噪声
+	//GaussianBlur(src, src, Size(3, 3), 0, 0, BORDER_DEFAULT);
+
+	//【4】转换为灰度图
+	//cvtColor(src, src_gray, CV_RGB2GRAY);
+
+	//【5】使用Laplace函数
+	Laplacian(src, dst, CV_16S, 3, 1, 0, BORDER_DEFAULT);
+
+	//【6】计算绝对值，并将结果转换成8位
+	convertScaleAbs(dst, abs_dst);
+
+	//【7】显示效果图
+	imshow("【效果图】图像Laplace变换", abs_dst);
+
+	waitKey(0);
+
+	//return 0;
 	//【0】改变console字体颜色
 	system("color 1A");
 
@@ -964,6 +991,110 @@ int main()
 	//【7】显示效果图
 	imshow("匹配图", imgMatches);
 
+	waitKey(0);
+	return 0;
+}
+
+void salt(Mat image, int n) {
+	int i; 
+	int j;
+	for (int k = 0; k < n; k++) {
+		i = rand() % image.cols;
+		j = rand() % image.rows;
+
+		if (image.type() == CV_8UC1) {
+			image.at<uchar>(j, i) = 255;
+		}
+		else if (image.type() == CV_8UC3) {
+			image.at<Vec3b>(j, i)[0] = 255;
+			image.at<Vec3b>(j, i)[1] = 255;
+			image.at<Vec3b>(j, i)[2] = 255;
+		}
+	}
+}
+
+void colorReduce(const Mat image, Mat result, int div = 64) {
+	int nl = image.rows;
+	int nc = image.cols * image.channels();
+	for (int j = 0; j < nl; j++) {
+		const uchar* indata = image.ptr<uchar>(j);
+		uchar* outdata = result.ptr<uchar>(j);
+		for (int i = 0; i < nc; i++) {
+			outdata[i] = indata[i] / div * div + div / 2;
+		}
+	}
+}
+
+void sharpen(const Mat &image, Mat &result) {
+	result.create(image.size(), image.type());
+	int nchanels = image.channels();
+	for (int j = 1; j < image.rows - 1; j++) {
+		const uchar* pre = image.ptr<const uchar>(j - 1);
+		const uchar* curr = image.ptr<const uchar>(j);
+		const uchar* next = image.ptr<const uchar>(j + 1);
+		uchar* output = result.ptr<uchar>(j);
+		for(int i = nchanels; i < (image.cols - 1)* nchanels; i++) {
+			*output++ = saturate_cast<uchar>(5 * curr[i] - curr[i - nchanels] - curr[i + nchanels] - pre[i] - next[i]);
+		}
+	}
+	result.row(0).setTo(Scalar(0));
+	result.row(result.rows - 1).setTo(Scalar(0));
+	result.col(0).setTo(Scalar(0));
+	result.col(result.cols - 1).setTo(Scalar(0));
+}
+
+void sharpen2D(const Mat &image, Mat &result) {
+	Mat kernel(3, 3, CV_32F, Scalar(0));
+	kernel.at<float>(1, 1) = 5.0;
+	kernel.at<float>(0, 1) = -1.0;
+	kernel.at<float>(2, 1) = -1.0;
+	kernel.at<float>(1, 0) = -1.0;
+	kernel.at<float>(1, 2) = -1.0;
+	filter2D(image, result, image.depth(), kernel);
+}
+
+void wave(const Mat& image, Mat result) {
+	Mat srcX(image.rows, image.cols, CV_32F);
+	Mat srcY(image.rows, image.cols, CV_32F);
+	for (int i = 0; i < image.rows; i++) {
+		for (int j = 0; j < image.cols; j++) {
+			srcX.at<float>(i, j) = image.cols - j - 1;
+			srcY.at<float>(i, j) = i;
+		}
+	}
+	remap(image, result, srcX, srcY, INTER_LINEAR);
+}
+
+class ColorDector
+{
+public:
+	ColorDector() :maxDist(50), target(0, 0, 0) {};
+	void setTargetColor(uchar blue, uchar green, uchar red) {
+		target = Vec3b(blue, green, red);
+	}
+	Mat process(const Mat &image);
+private:
+	int maxDist;
+	Vec3b target;
+	Mat result;
+};
+
+Mat ColorDector::process(const Mat &image) {
+	Mat output;
+	absdiff(image, Scalar(target), output);
+	vector<Mat> images;
+	split(output, images);
+	output = images[0] + images[1] + images[2];
+	threshold(output, output, maxDist, 255, THRESH_BINARY_INV);
+	return output;
+}
+
+int main() {
+	ColorDector cdetect;
+	Mat image = imread("book.png", 1);
+	cdetect.setTargetColor(230, 190, 130);
+	namedWindow("result");
+	imshow("result", cdetect.process(image));
 	waitKey(0);
 	return 0;
 }
