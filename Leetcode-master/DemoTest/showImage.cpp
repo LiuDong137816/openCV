@@ -1072,6 +1072,12 @@ public:
 	void setTargetColor(uchar blue, uchar green, uchar red) {
 		target = Vec3b(blue, green, red);
 	}
+	int getColorDistance(const Vec3b& color1, const Vec3b& color2)const {
+		return abs(color1[0] - color2[0]) + abs(color1[1] - color2[1]) + abs(color1[2] - color2[2]);
+	}
+	int getDistanceToTargetColor(const Vec3b& color) {
+		return getColorDistance(color, target);
+	}
 	Mat process(const Mat &image);
 private:
 	int maxDist;
@@ -1089,12 +1095,65 @@ Mat ColorDector::process(const Mat &image) {
 	return output;
 }
 
+void detectHScolor(const Mat& image, double minHue, double maxHue, double minSat, double maxSat, Mat& mask) {
+	Mat hsv;
+	cvtColor(image, hsv, CV_BGR2HSV);
+
+	vector<Mat> channels;
+	split(hsv, channels);
+	Mat mask1;
+	threshold(channels[0], mask1, maxHue, 255, THRESH_BINARY_INV);
+	Mat mask2;
+	threshold(channels[0], mask2, minHue, 255, THRESH_BINARY);
+
+	Mat hueMask;
+	if (minHue < maxHue)
+		hueMask = mask1 & mask2;
+	else
+		hueMask = mask1 | mask2;
+	threshold(channels[1], mask1, maxSat, 255, THRESH_BINARY_INV);
+	threshold(channels[1], mask2, minSat, 255, THRESH_BINARY);
+	Mat satMask = mask1 & mask2;
+	mask = hueMask & satMask;
+}
+
+class Histogram1D {
+private:
+	int histSize[1];
+	float hranges[2];
+	const float* ranges[1];
+	int channels[1];
+public:
+	Histogram1D() {
+		histSize[0] = 256;
+		hranges[0] = 0.0;
+		hranges[1] = 256.0;
+		ranges[0] = hranges;
+		channels[0] = 0;
+	}
+	Mat getHistogram(const Mat &image);
+	Mat getHistogramImage(const Mat &image, int zoom = 1);
+};
+
+Mat Histogram1D::getHistogram(const Mat &image) {
+	Mat hist;
+	calcHist(&image, 1, channels, Mat(), hist, 1, histSize, ranges);
+	return hist;
+}
+
+Mat Histogram1D::getHistogramImage(const Mat &image, int zoom = 1) {
+	Mat hist = getHistogram(image);
+	return;
+}
+
 int main() {
-	ColorDector cdetect;
-	Mat image = imread("book.png", 1);
-	cdetect.setTargetColor(230, 190, 130);
-	namedWindow("result");
-	imshow("result", cdetect.process(image));
+	Mat image = imread("girl.png");
+	Mat mask;
+	detectHScolor(image, 160, 10, 25, 166, mask);
+	Mat detected(image.size(), CV_8UC3, Scalar(0, 0, 0));
+	image.copyTo(detected, mask);
+	imshow("show1", mask);
+	imshow("show", detected);
 	waitKey(0);
 	return 0;
 }
