@@ -1132,7 +1132,10 @@ public:
 		channels[0] = 0;
 	}
 	Mat getHistogram(const Mat &image);
-	Mat getHistogramImage(const Mat &image, int zoom = 1);
+	Mat getHistogramImage(const Mat &image, int zoom);
+	static Mat getImageOfHistogram(const Mat &hist, int zoom);
+	Mat strech(const Mat &image, int minValue);
+	Mat applyLookUp(const Mat &image, const Mat& lookup);
 };
 
 Mat Histogram1D::getHistogram(const Mat &image) {
@@ -1141,13 +1144,126 @@ Mat Histogram1D::getHistogram(const Mat &image) {
 	return hist;
 }
 
+Mat Histogram1D::getImageOfHistogram(const Mat &hist, int zoom) {
+	double maxVal = 0;
+	double minVal = 0;
+	minMaxLoc(hist, &minVal, &maxVal, 0, 0);
+	int histSize = hist.rows;
+	Mat histImg(histSize*zoom, histSize*zoom, CV_8U, Scalar(255));
+	int hpt = static_cast<int>(0.9*histSize);
+	for (int h = 0; h < histSize; h++) {
+		float binVal = hist.at<float>(h);
+		if (binVal > 0) {
+			int intensity = static_cast<int>(binVal*hpt / maxVal);
+			line(histImg, Point(h*zoom, histSize*zoom), Point(h*zoom, (histSize - intensity)*zoom), Scalar(0), zoom);
+		}
+	}
+	return histImg;
+}
+
 Mat Histogram1D::getHistogramImage(const Mat &image, int zoom = 1) {
 	Mat hist = getHistogram(image);
-	return;
+	return getImageOfHistogram(hist, zoom);
+}
+
+Mat Histogram1D::applyLookUp(const Mat &image, const Mat& lookup) {
+	Mat result;
+	LUT(image, lookup, result);
+	return result;
+}
+
+Mat Histogram1D::strech(const Mat &image, int minValue = 0) {
+	Mat hist = getHistogram(image);
+	int imin = 0;
+	for (; imin < histSize[0]; imin++) {
+		if (hist.at<float>(imin) > minValue)
+			break;
+	}
+	int imax = histSize[0] - 1;
+	for (; imax >= 0; imax--) {
+		if (hist.at<float>(imax) > minValue)
+			break;
+	}
+	int dim(256);
+	Mat lookup(1, &dim, CV_8U);
+	for (int i = 0; i < 256; i++) {
+		if (i < imin)
+			lookup.at<uchar>(i) = 0;
+		else if (i > imax)
+			lookup.at<uchar>(i) = 255;
+		else
+			lookup.at<uchar>(i) = cvRound(255.0*(i - imin) / (imax - imin));
+	}
+	Mat result;
+	result = applyLookUp(image, lookup);
+	return result;
+}
+
+class ColorHistogram
+{
+public:
+	ColorHistogram();
+private:
+	int histSize[3];
+	float hrangs[2];
+};
+
+class ContentFinder {
+private:
+	float hrange[2];
+	const float* ranges[3];
+	int channels[3];
+	float threshold;
+	Mat histogram;
+public:
+	ContentFinder() :threshold(0.1f) {
+		ranges[0] = hrange;
+		ranges[1] = hrange;
+		ranges[2] = hrange;
+	}
+	void setThreshold(float t) {
+		threshold = t;
+	}
+	float getThreshold() {
+		return threshold;
+	}
+	void setHisogram(const Mat &h) {
+		histogram = h;
+		normalize(histogram, histogram, 1.0);
+	}
+	Mat find(const Mat& image);
+	Mat find(const Mat& image, float minValue, float maxValue, int *channels);
+};
+Mat ContentFinder::find(const Mat& image, float minValue, float maxValue, int *channel) {
+	Mat result;
+	hrange[0] = minValue;
+	hrange[1] = maxValue;
+	for (int i = 0; i < histogram.dims; i++)
+		this->channels[i] = channels[i];
+	calcBackProject(&image, 1, channels, histogram, result, ranges, 255.0);
+	if (threshold > 0.0)
+		cv::threshold(result, result, 255.0*threshold, 255.0, THRESH_BINARY);
+	return result;
+}
+
+Mat ContentFinder::find(const Mat& image) {
+	Mat result;
+	hrange[0] = 0.0;
+	hrange[1] = 256.0;
+	channels[0] = 0;
+	channels[1] = 1;
+	channels[2] = 2;
+	return find(image, hrange[0], hrange[1], channels);
 }
 
 int main() {
+	
 	Mat image = imread("girl.png");
+	ContentFinder finder;
+	finder.setHisogram(image);
+	finder.setThreshold(0.05f);
+	Mat result = finder.find(image);
+	
 	Mat mask;
 	detectHScolor(image, 160, 10, 25, 166, mask);
 	Mat detected(image.size(), CV_8UC3, Scalar(0, 0, 0));
