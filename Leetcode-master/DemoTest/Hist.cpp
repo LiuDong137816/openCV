@@ -622,27 +622,151 @@ public:
 	}
 };
 
-int main() {
-	Mat img1 = imread(argv[1], CV_LOAD_IMAGE_GRAYSCALE);
-	Mat img2 = imread(argv[2], CV_LOAD_IMAGE_GRAYSCALE);
-	if (img1.empty() || img2.empty())
-	{
-		printf("Can't read one of the images\n");
-		return -1;
+class CameraCalibrator {
+
+	//输入点
+	std::vector<std::vector<cv::Point3f>> objectPoints;//世界坐标系下的点
+	std::vector<std::vector<cv::Point2f>> imagePoints;//像素坐标系下的点
+	//输出矩阵
+	cv::Mat cameraMatrix;//摄像机内参数矩阵
+	cv::Mat distCoeffs;//透镜畸变系数矩阵
+	//标定方式
+	int flag;
+	//用于图像去畸变 
+	cv::Mat map1, map2;
+	bool mustInitUndistort;
+
+public:
+	CameraCalibrator() : flag(0), mustInitUndistort(true) {};
+
+	//导入标定图片提取角点
+	int addChessboardPoints(const std::vector<std::string>& filelist, cv::Size & boardSiz, std::string windowName);
+	//添加场景点与对应的图像点
+	void addPoints(const std::vector<cv::Point2f>& imageCorners, const std::vector<cv::Point3f>& objectCorners);
+	//标定相机
+	double calibrate(const cv::Size imageSize);
+	//设置标定方式
+	void setCalibrationFlag(bool radial8CoeffEnabled = false, bool tangentialParamEnabled = false);
+	//消除透镜畸变(标定之后调用有效)
+	cv::Mat remap(const cv::Mat &image, cv::Size &outputSize);
+
+	// 获取矩阵
+	cv::Mat getCameraMatrix() { return cameraMatrix; }
+	cv::Mat getDistCoeffs() { return distCoeffs; }
+};
+
+int CameraCalibrator::addChessboardPoints(
+	const std::vector<std::string>& filelist, // 文件名列表
+	cv::Size & boardSize,                     // 标定面板的大小 
+	std::string windowName) {                 // name of window to display results
+											  // if null, no display shown
+// 棋盘上的角点 
+	std::vector<cv::Point2f> imageCorners;
+	std::vector<cv::Point3f> objectCorners;
+	// 场景中的三维点： 
+	// 在棋盘坐标系中，初始化棋盘中的角点 
+	// 角点的三维坐标(X,Y,Z)= (i,j,0) 
+	for (int i = 0; i < boardSize.height; i++) {
+		for (int j = 0; j < boardSize.width; j++) {
+			objectCorners.push_back(cv::Point3f(i, j, 0.0f));
+		}
 	}
+	// 图像上的二维点：
+	cv::Mat image; // 用于存储棋盘图像 
+	int successes = 0;
+	// 处理所有视角 
+	for (int i = 0; i < filelist.size(); i++) {
+		// 打开图像
+		image = cv::imread(filelist[i], 0);
+		// 取得棋盘中的角点
+		bool found = cv::findChessboardCorners(image,         // 包含棋盘图案的图像
+			boardSize,     // 图案的大小
+			imageCorners); // 检测到角点的列表
+// 取得角点上的亚像素级精度
+		if (found) {
+			cv::cornerSubPix(image, imageCorners,
+				cv::Size(5, 5), // 搜索窗口的半径 
+				cv::Size(-1, -1),
+				cv::TermCriteria(cv::TermCriteria::MAX_ITER +
+					cv::TermCriteria::EPS,
+					30,        // 最大迭代次数 
+					0.1));  // 最小精度 
+			// 如果棋盘是完好的，就把它加入结果  
+			if (imageCorners.size() == boardSize.area()) {
+				// 加入从同一个视角得到的图像和场景点 
+				addPoints(imageCorners, objectCorners);
+				successes++;
+			}
+		}
+		if (windowName.length() > 0 && imageCorners.size() == boardSize.area()) {
 
-	// detecting keypoints
-	Ptr<SurfFeatureDetector> detector = SurfFeatureDetector::create(400);
-	vector<KeyPoint> keypoints1, keypoints2;
-	detector->detect(img1, keypoints1);
-	detector->detect(img2, keypoints2);
+			//Draw the corners
+			cv::drawChessboardCorners(image, boardSize, imageCorners, found);
+			cv::imshow(windowName, image);
+			cv::waitKey(100);
+		}
+	}
+	return successes;
+}
+// Add scene points and corresponding image points
+void CameraCalibrator::addPoints(const std::vector<cv::Point2f>& imageCorners, const std::vector<cv::Point3f>& objectCorners) {
+	// 2D image points from one view
+	imagePoints.push_back(imageCorners);
+	// corresponding 3D scene points
+	objectPoints.push_back(objectCorners);
+}
+// 标定相机 
+// 返回重投影误差 
+double CameraCalibrator::calibrate(const cv::Size imageSize)
+{
+	mustInitUndistort = true;
+	// 输出旋转量和平移量 
+	std::vector<cv::Mat> rvecs, tvecs;
+	// 开始标定
+	return
+		calibrateCamera(objectPoints, // 三维点 
+			imagePoints,   // 图像点 
+			imageSize,     // 图像尺寸 
+			cameraMatrix,  // 输出相机矩阵 
+			distCoeffs,    // 输出畸变矩阵 
+			rvecs, tvecs,  // Rs、Ts 
+			flag);         // 设置选项 
+//                    ,CV_CALIB_USE_INTRINSIC_GUESS);
+}
+// 去除图像中的畸变（标定后） 
+cv::Mat CameraCalibrator::remap(const cv::Mat &image, cv::Size &outputSize) {
+	cv::Mat undistorted;
+	if (outputSize.height == -1)
+		outputSize = image.size();
+	if (mustInitUndistort) { // 每个标定过程调用一次  
 
-	// computing descriptors
-	Ptr<SurfDescriptorExtractor> extractor = SurfDescriptorExtractor::create();
-	Mat descriptors1, descriptors2;
-	extractor->compute(img1, keypoints1, descriptors1);
-	extractor->compute(img2, keypoints2, descriptors2);
+		cv::initUndistortRectifyMap(
+			cameraMatrix,  // 计算得到的相机矩阵 
+			distCoeffs,    // 计算得到的畸变矩阵 
+			cv::Mat(),     // 可选矫正项（无） 
+			cv::Mat(),     // 生成无畸变的相机矩阵
+			outputSize,    // 无畸变图像的尺寸
+			CV_32FC1,      // 输出图片的类型 
+			map1, map2);   // x 和 y 映射功能 
+		mustInitUndistort = false;
+	}
+	// Apply mapping functions
+	cv::remap(image, undistorted, map1, map2,
+		cv::INTER_LINEAR); // interpolation type
+	return undistorted;
+}
+// Set the calibration options
+// 8radialCoeffEnabled should be true if 8 radial coefficients are required (5 is default)
+// tangentialParamEnabled should be true if tangeantial distortion is present
+void CameraCalibrator::setCalibrationFlag(bool radial8CoeffEnabled, bool tangentialParamEnabled) {
+	// Set the flag used in cv::calibrateCamera()
+	flag = 0;
+	if (!tangentialParamEnabled) flag += CV_CALIB_ZERO_TANGENT_DIST;
+	if (radial8CoeffEnabled) flag += CV_CALIB_RATIONAL_MODEL;
+}
 
+int main() {
+	
 	waitKey(0);
 	return 0;
 }
